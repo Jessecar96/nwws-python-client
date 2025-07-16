@@ -25,7 +25,7 @@ def sigpipe_handler(signal, frame):
     sys.exit(0)
 
 signal.signal(signal.SIGINT, sigint_handler)
-signal.signal(signal.SIGPIPE, sigpipe_handler)
+#signal.signal(signal.SIGPIPE, sigpipe_handler)
 
 class MUCBot(slixmpp.ClientXMPP):
 
@@ -87,44 +87,58 @@ class MUCBot(slixmpp.ClientXMPP):
         """
         try:
             print('INFO\t message stanza rcvd from nwws-oi saying... ' + msg['body'])
+
             xmldoc = minidom.parseString(str(msg))
             itemlist = xmldoc.getElementsByTagName('x')
-            ttaaii = itemlist[0].attributes['ttaaii'].value.lower()
-            cccc = itemlist[0].attributes['cccc'].value.lower()
             awipsid = itemlist[0].attributes['awipsid'].value.lower()
-            id = itemlist[0].attributes['id'].value
+            product_name = awipsid[:3].lower()
             content = itemlist[0].firstChild.nodeValue
-            if awipsid:
-                dayhourmin = datetime.now(timezone.utc).strftime("%d%H%M")
-                filename = cccc + '_' + ttaaii + '-' + awipsid + '.' + dayhourmin + '_' + id + '.txt'
-                print("DEBUG\t Writing " + filename, file=sys.stderr)
-                if not os.path.exists(config['archivedir'] + '/' + cccc):
-                    os.makedirs(config['archivedir'] + '/' + cccc)
-                # Remove every other line (if it's not a CAP file)
-                lines = content.splitlines()
-                pathtofile = config['archivedir'] + '/' + cccc + '/' + filename
-                f = open(pathtofile, 'w')
-                count = 0
-                blank_lines = re.compile(r"^\s*$")
-                if awipsid.startswith("cap"):
-                    for line in lines:
-                        if blank_lines.match(line):
-                            continue
-                        f.write(line + "\n")
-                else:
-                    for line in lines:
-                        if count == 0 and line == '':
-                            continue
-                        if count % 2 == 0:
-                            f.write(line + "\n")
-                        count += 1
-                    f.close()
-                # Run a command using the file as the parameter (if pan_run is defined in the config file)
-                if 'pan_run' in config:
-                    try:
-                        os.system(config['pan_run']+' '+pathtofile+' >/dev/null')
-                    except OSError as e:
-                        print("ERROR\t Execution failed: " + e, file=sys.stderr)
+
+            if not awipsid:
+                return
+
+            # If whitelist is enabled, check for product type
+            if 'write_products' in config:
+                if product_name not in config['write_products']:
+                    #print("DEBUG\t Ignoring " + awipsid)
+                    return
+
+            if not os.path.exists(config['archivedir'] + '/' + product_name):
+                os.makedirs(config['archivedir'] + '/' + product_name)
+
+            # Remove every other line (if it's not a CAP file)
+            lines = content.splitlines()
+            output = ""
+            count = 0
+            blank_lines = re.compile(r"^\s*$")
+            if awipsid.startswith("cap"):
+                for line in lines:
+                    if blank_lines.match(line):
+                        continue
+                    output += (line + "\n")
+            else:
+                for line in lines:
+                    if count == 0 and line == '':
+                        continue
+                    if count % 2 == 0:
+                        output += (line + "\n")
+                    count += 1
+
+            matches = re.finditer(r"(..Z\d{3})-\d{6}-(.*?\$\$)", output, re.DOTALL)
+
+            # Split products by zone
+            for match in matches:
+                groups = match.groups()
+                #print(groups)
+                zone = groups[0]
+                single_content = groups[1]
+                single_content = single_content.strip()
+                filename = zone.lower() + '.txt'
+                pathtofile = config['archivedir'] + '/' + product_name.lower() + '/' + filename
+                print("INFO\t Writing " + pathtofile)
+                with open(pathtofile, "w") as f:
+                    f.write(single_content)
+
         except Exception as e:
             print("ERROR\t Caught " + str(type(e)) + " exception:")
             print(e)
